@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Guess Who — League of Legends Champions</title>
+  <style>
+    :root{
+      --bg:#071025;
+      --panel:#0f1724;
+      --muted:#94a3b8;
+      --accent:#3b82f6;
+      --danger:#ef4444;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial;color:#e6eef8;background:linear-gradient(180deg,var(--bg),#021018);}
+    .wrap{max-width:1200px;margin:18px auto;padding:14px;}
+    header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    h1{margin:0;font-size:20px;}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+    button{background:var(--panel);border:1px solid rgba(255,255,255,0.04);color:#e6eef8;padding:8px 10px;border-radius:8px;cursor:pointer}
+    button:active{transform:translateY(1px)}
+    .search{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#e6eef8}
+    .meta{margin-left:auto;color:var(--muted);font-size:13px}
+    #board{margin-top:14px;display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:10px;overflow:hidden;cursor:pointer;position:relative;transition:transform .12s,box-shadow .12s}
+    .card:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(2,6,23,0.6)}
+    .card img{width:100%;height:110px;object-fit:cover;display:block}
+    .label{padding:8px 6px;font-weight:600;text-align:center;font-size:13px}
+    /* flipped (face-down / excluded) */
+    .card.flipped img{filter:grayscale(100%) brightness(.15) contrast(1.1)}
+    .card.flipped::after{
+      content:"EXCLUDED";
+      position:absolute;left:6px;top:6px;
+      padding:4px 8px;border-radius:6px;
+      background:rgba(0,0,0,0.6);color:var(--danger);font-weight:800;font-size:12px;
+      transform:rotate(-10deg);
+    }
+    .toolbar{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+    .tiny{font-size:13px;padding:6px 8px}
+    .muted{color:var(--muted);font-size:13px}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    @media (max-width:520px){
+      .label{font-size:12px}
+      .card img{height:92px}
+      #board{gap:8px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Guess Who — League of Legends (champions board)</h1>
+        <div class="muted" style="margin-top:6px">Click a champion card to flip (exclude). Use the controls to flip all/reset/shuffle/search. Images come from Riot's Data Dragon.</div>
+      </div>
+
+      <div class="meta" id="meta">Loading champions…</div>
+    </header>
+
+    <div class="controls">
+      <input id="q" class="search" placeholder="Search champion name..." />
+      <div class="toolbar">
+        <button id="flip-all-down" class="tiny">Flip Down All</button>
+        <button id="flip-all-up" class="tiny">Flip Up All</button>
+        <button id="shuffle" class="tiny">Shuffle</button>
+        <button id="reset" class="tiny">Reset</button>
+        <button id="save" class="tiny">Save Board (local)</button>
+        <button id="load" class="tiny">Load Board</button>
+      </div>
+    </div>
+
+    <div id="board" aria-live="polite"></div>
+
+    <footer>
+      <div>Tip: To test locally run <code>python3 -m http.server 8000</code> then open <code>http://localhost:8000</code>.</div>
+    </footer>
+  </div>
+
+  <script>
+  // Single-file "app" to:
+  // 1) fetch latest Data Dragon version
+  // 2) fetch champion list
+  // 3) render a grid of champion cards
+  // 4) allow toggling (flip/exclude) per card and flip all/up/reset/shuffle/search
+  // 5) allow saving/loading board state to localStorage for quick sharing locally
+
+  (async function(){
+    const metaEl = document.getElementById('meta');
+    const boardEl = document.getElementById('board');
+    const qEl = document.getElementById('q');
+    const flipAllDownBtn = document.getElementById('flip-all-down');
+    const flipAllUpBtn = document.getElementById('flip-all-up');
+    const resetBtn = document.getElementById('reset');
+    const shuffleBtn = document.getElementById('shuffle');
+    const saveBtn = document.getElementById('save');
+    const loadBtn = document.getElementById('load');
+
+    let version = 'latest'; // fallback
+    let allChamps = [];     // champion objects from Data Dragon
+    let originalOrder = []; // keep for reset
+    let visibleList = [];   // currently rendered list (after search/filter)
+
+    function $create(tag, props = {}) {
+      const el = document.createElement(tag);
+      Object.entries(props).forEach(([k,v])=>{
+        if(k === 'class') el.className = v;
+        else if(k === 'text') el.textContent = v;
+        else el.setAttribute(k, v);
+      });
+      return el;
+    }
+
+    function setMeta(text){
+      metaEl.textContent = text;
+    }
+
+    // Fetch latest version from Data Dragon (versions.json)
+    async function fetchLatestVersion(){
+      try {
+        const r = await fetch('https://ddragon.leagueoflegends.com/api/versions.json');
+        const versions = await r.json();
+        if(Array.isArray(versions) && versions.length) return versions[0];
+      } catch(e){
+        console.warn('Could not fetch versions.json, falling back to "latest".', e);
+      }
+      return 'latest';
+    }
+
+    // Fetch champion list for a given version
+    async function fetchChampions(ver){
+      const url = `https://ddragon.leagueoflegends.com/cdn/${ver}/data/en_US/champion.json`;
+      const r = await fetch(url);
+      if(!r.ok) throw new Error('champion.json fetch failed: '+r.status);
+      const data = await r.json();
+      // Object with champion IDs as keys, values include image.full etc.
+      return Object.values(data.data);
+    }
+
+    function render(list){
+      boardEl.innerHTML = '';
+      if(!list.length){
+        boardEl.appendChild($create('div',{text:'No champions found.', class:'muted'}));
+        return;
+      }
+      list.forEach(champ => {
+        const card = $create('div',{class:'card', 'data-key':champ.id});
+        const img = $create('img');
+        // Use the champion square icon shipped by Riot
+        img.src = `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champ.image.full}`;
+        img.alt = champ.name;
+        const label = $create('div',{class:'label', text:champ.name});
+
+        card.appendChild(img);
+        card.appendChild(label);
+
+        // If this champ has flipped state saved (localStorage or runtime), mark it
+        if(champ.__flipped) card.classList.add('flipped');
+
+        // Toggle flipped on click
+        card.addEventListener('click', () => {
+          card.classList.toggle('flipped');
+          champ.__flipped = card.classList.contains('flipped');
+        });
+
+        boardEl.appendChild(card);
+      });
+    }
+
+    function applySearch(q){
+      q = (q||'').trim().toLowerCase();
+      visibleList = allChamps.filter(c => c.name.toLowerCase().includes(q));
+      render(visibleList);
+    }
+
+    function flipAllDown(){
+      document.querySelectorAll('.card').forEach(el=>{
+        el.classList.add('flipped');
+        const id = el.dataset.key;
+        const c = allChamps.find(x=>x.id===id);
+        if(c) c.__flipped = true;
+      });
+    }
+    function flipAllUp(){
+      document.querySelectorAll('.card').forEach(el=>{
+        el.classList.remove('flipped');
+        const id = el.dataset.key;
+        const c = allChamps.find(x=>x.id===id);
+        if(c) c.__flipped = false;
+      });
+    }
+
+    function shuffleArray(a){
+      for(let i=a.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
+      }
+    }
+
+    function saveBoard(){
+      // Save champion order + flipped states
+      const payload = {
+        version,
+        list: allChamps.map(c => ({id:c.id, flipped:!!c.__flipped}))
+      };
+      localStorage.setItem('guesswho-lol-board', JSON.stringify(payload));
+      alert('Board saved locally. Use "Load Board" on this browser to restore.');
+    }
+    function loadBoard(){
+      const raw = localStorage.getItem('guesswho-lol-board');
+      if(!raw){ alert('No saved board found in this browser.'); return; }
+      try{
+        const payload = JSON.parse(raw);
+        if(payload.version !== version){
+          if(!confirm('Saved board used a different LoL version. Continue and try to match champions?')) return;
+        }
+        // Apply flips to current allChamps
+        const map = new Map(payload.list.map(x=>[x.id,x.flipped]));
+        allChamps.forEach(c => { c.__flipped = !!map.get(c.id); });
+        applySearch(qEl.value);
+      }catch(e){
+        alert('Failed to load board: '+e.message);
+      }
+    }
+
+    // init
+    try {
+      setMeta('Fetching latest Riot Data Dragon version…');
+      version = await fetchLatestVersion();
+      setMeta('Loading champions for version ' + version + ' …');
+
+      const champs = await fetchChampions(version);
+      // optional: sort by name for an initial ordered board
+      champs.sort((a,b)=>a.name.localeCompare(b.name));
+      // initialize flipped state
+      champs.forEach(c=> c.__flipped = false);
+
+      allChamps = champs;
+      originalOrder = champs.map(c => c.id); // preserve id order
+      visibleList = allChamps.slice();
+
+      setMeta(`${allChamps.length} champions — Data Dragon ${version}`);
+      render(visibleList);
+    } catch(err){
+      console.error(err);
+      setMeta('Failed to load champions. See console for details.');
+      boardEl.innerHTML = '<div style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">Error loading champion data. If you are testing locally from a file (file://), run a local server (see footer) or check your internet connection.</div>';
+      return;
+    }
+
+    // wire UI
+    qEl.addEventListener('input', (e) => applySearch(e.target.value));
+    flipAllDownBtn.addEventListener('click', () => { flipAllDown(); });
+    flipAllUpBtn.addEventListener('click', () => { flipAllUp(); });
+    resetBtn.addEventListener('click', () => {
+      // restore original order and clear flips
+      const idMap = new Map(allChamps.map(c=>[c.id,c]));
+      allChamps = originalOrder.map(id => {
+        const c = idMap.get(id);
+        if(c) c.__flipped = false;
+        return c;
+      });
+      visibleList = allChamps.slice();
+      qEl.value = '';
+      render(visibleList);
+      setMeta(`${allChamps.length} champions — Data Dragon ${version}`);
+    });
+    shuffleBtn.addEventListener('click', () => {
+      shuffleArray(allChamps);
+      visibleList = allChamps.slice();
+      render(visibleList);
+    });
+
+    saveBtn.addEventListener('click', saveBoard);
+    loadBtn.addEventListener('click', loadBoard);
+
+    // keyboard: press "f" to flip all down quickly
+    window.addEventListener('keydown', (e) => {
+      if(e.key === 'f' && !e.metaKey && !e.ctrlKey) flipAllDown();
+      if(e.key === 'u' && !e.metaKey && !e.ctrlKey) flipAllUp();
+      if(e.key === 'r' && !e.metaKey && !e.ctrlKey) resetBtn.click();
+    });
+
+  })();
+  </script>
+</body>
+</html>
