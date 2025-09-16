@@ -96,10 +96,25 @@
     const saveBtn = document.getElementById('save');
     const loadBtn = document.getElementById('load');
 
-    const ionia = [
-  "Ahri","Irelia","Karma","LeeSin","MasterYi","Varus",
-  "Yasuo","Yone","Jhin","Sett","Zed"
+
+    // List of Ionian champions
+const ionianChamps = [
+  "Ahri", "Akali", "Hwei", "Irelia", "Ivern", "Jhin", "Karma", "Kayn", "Kennen",
+  "Lee Sin", "Lillia", "Master Yi", "Rakan", "Sett", "Shen", "Syndra", "Varus",
+  "Wukong", "Xayah", "Yasuo", "Yone", "Yunara", "Zed"
 ];
+
+// Button logic
+document.getElementById("ioniaButton").addEventListener("click", () => {
+  document.querySelectorAll(".champion").forEach(champ => {
+    const champName = champ.dataset.name; // assumes you stored name in data-name
+    if (!ionianChamps.includes(champName)) {
+      champ.classList.add("blackout"); // style hides them
+    } else {
+      champ.classList.remove("blackout"); // keeps Ionians visible
+    }
+  });
+});
 
 const ioniaBtn = document.getElementById('ionia');
 
@@ -302,4 +317,5 @@ ioniaBtn.addEventListener('click', () => {
   </script>
 </body>
 </html>
+
 
