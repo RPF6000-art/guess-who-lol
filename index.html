@@ -66,6 +66,7 @@
         <button id="reset" class="tiny">Reset</button>
         <button id="save" class="tiny">Save Board (local)</button>
         <button id="load" class="tiny">Load Board</button>
+        <button id="ionia" class="tiny">Ionia First</button>
       </div>
     </div>
 
@@ -94,6 +95,23 @@
     const shuffleBtn = document.getElementById('shuffle');
     const saveBtn = document.getElementById('save');
     const loadBtn = document.getElementById('load');
+
+    const ionia = [
+  "Ahri","Irelia","Karma","LeeSin","MasterYi","Varus",
+  "Yasuo","Yone","Jhin","Sett","Zed"
+];
+
+const ioniaBtn = document.getElementById('ionia');
+
+ioniaBtn.addEventListener('click', () => {
+  visibleList.sort((a,b) => {
+    const aIsIonia = ionia.includes(a.id);
+    const bIsIonia = ionia.includes(b.id);
+    return (aIsIonia === bIsIonia) ? 0 : aIsIonia ? -1 : 1;
+  });
+  render(visibleList);
+});
+
 
     let version = 'latest'; // fallback
     let allChamps = [];     // champion objects from Data Dragon
@@ -284,3 +302,4 @@
   </script>
 </body>
 </html>
+
