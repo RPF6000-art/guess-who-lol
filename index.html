@@ -51,9 +51,8 @@
     <header>
       <div>
         <h1>Guess Who — League of Legends (champions board)</h1>
-        <div class="muted" style="margin-top:6px">Click a champion card to flip (exclude). Use the controls to flip all/reset/shuffle/search. Images come from Riot's Data Dragon.</div>
+        <div class="muted" style="margin-top:6px">Click a champion card to flip (exclude). Use the controls to flip all/reset/filter/search. Images come from Riot's Data Dragon.</div>
       </div>
-
       <div class="meta" id="meta">Loading champions…</div>
     </header>
 
@@ -62,11 +61,9 @@
       <div class="toolbar">
         <button id="flip-all-down" class="tiny">Flip Down All</button>
         <button id="flip-all-up" class="tiny">Flip Up All</button>
-        <button id="shuffle" class="tiny">Shuffle</button>
         <button id="reset" class="tiny">Reset</button>
-        <button id="save" class="tiny">Save Board (local)</button>
-        <button id="load" class="tiny">Load Board</button>
         <button id="ionia" class="tiny">Ionia First</button>
+        <button id="move-eliminated" class="tiny">Move Eliminated</button>
       </div>
     </div>
 
@@ -78,13 +75,6 @@
   </div>
 
   <script>
-  // Single-file "app" to:
-  // 1) fetch latest Data Dragon version
-  // 2) fetch champion list
-  // 3) render a grid of champion cards
-  // 4) allow toggling (flip/exclude) per card and flip all/up/reset/shuffle/search
-  // 5) allow saving/loading board state to localStorage for quick sharing locally
-
   (async function(){
     const metaEl = document.getElementById('meta');
     const boardEl = document.getElementById('board');
@@ -92,46 +82,19 @@
     const flipAllDownBtn = document.getElementById('flip-all-down');
     const flipAllUpBtn = document.getElementById('flip-all-up');
     const resetBtn = document.getElementById('reset');
-    const shuffleBtn = document.getElementById('shuffle');
-    const saveBtn = document.getElementById('save');
-    const loadBtn = document.getElementById('load');
+    const ioniaBtn = document.getElementById('ionia');
+    const moveEliminatedBtn = document.getElementById('move-eliminated');
 
+    const ionianChamps = [
+      "Ahri", "Akali", "Hwei", "Irelia", "Ivern", "Jhin", "Karma", "Kayn", "Kennen",
+      "Lee Sin", "Lillia", "Master Yi", "Rakan", "Sett", "Shen", "Syndra", "Varus",
+      "Wukong", "Xayah", "Yasuo", "Yone", "Yunara", "Zed"
+    ];
 
-    // List of Ionian champions
-const ionianChamps = [
-  "Ahri", "Akali", "Hwei", "Irelia", "Ivern", "Jhin", "Karma", "Kayn", "Kennen",
-  "Lee Sin", "Lillia", "Master Yi", "Rakan", "Sett", "Shen", "Syndra", "Varus",
-  "Wukong", "Xayah", "Yasuo", "Yone", "Yunara", "Zed"
-];
-
-// Button logic
-document.getElementById("ioniaButton").addEventListener("click", () => {
-  document.querySelectorAll(".champion").forEach(champ => {
-    const champName = champ.dataset.name; // assumes you stored name in data-name
-    if (!ionianChamps.includes(champName)) {
-      champ.classList.add("blackout"); // style hides them
-    } else {
-      champ.classList.remove("blackout"); // keeps Ionians visible
-    }
-  });
-});
-
-const ioniaBtn = document.getElementById('ionia');
-
-ioniaBtn.addEventListener('click', () => {
-  visibleList.sort((a,b) => {
-    const aIsIonia = ionia.includes(a.id);
-    const bIsIonia = ionia.includes(b.id);
-    return (aIsIonia === bIsIonia) ? 0 : aIsIonia ? -1 : 1;
-  });
-  render(visibleList);
-});
-
-
-    let version = 'latest'; // fallback
-    let allChamps = [];     // champion objects from Data Dragon
-    let originalOrder = []; // keep for reset
-    let visibleList = [];   // currently rendered list (after search/filter)
+    let version = 'latest';
+    let allChamps = [];
+    let originalOrder = [];
+    let visibleList = [];
 
     function $create(tag, props = {}) {
       const el = document.createElement(tag);
@@ -147,25 +110,16 @@ ioniaBtn.addEventListener('click', () => {
       metaEl.textContent = text;
     }
 
-    // Fetch latest version from Data Dragon (versions.json)
     async function fetchLatestVersion(){
-      try {
-        const r = await fetch('https://ddragon.leagueoflegends.com/api/versions.json');
-        const versions = await r.json();
-        if(Array.isArray(versions) && versions.length) return versions[0];
-      } catch(e){
-        console.warn('Could not fetch versions.json, falling back to "latest".', e);
-      }
-      return 'latest';
+      const r = await fetch('https://ddragon.leagueoflegends.com/api/versions.json');
+      const versions = await r.json();
+      return Array.isArray(versions) && versions.length ? versions[0] : 'latest';
     }
 
-    // Fetch champion list for a given version
     async function fetchChampions(ver){
       const url = `https://ddragon.leagueoflegends.com/cdn/${ver}/data/en_US/champion.json`;
       const r = await fetch(url);
-      if(!r.ok) throw new Error('champion.json fetch failed: '+r.status);
       const data = await r.json();
-      // Object with champion IDs as keys, values include image.full etc.
       return Object.values(data.data);
     }
 
@@ -178,7 +132,6 @@ ioniaBtn.addEventListener('click', () => {
       list.forEach(champ => {
         const card = $create('div',{class:'card', 'data-key':champ.id});
         const img = $create('img');
-        // Use the champion square icon shipped by Riot
         img.src = `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champ.image.full}`;
         img.alt = champ.name;
         const label = $create('div',{class:'label', text:champ.name});
@@ -186,10 +139,8 @@ ioniaBtn.addEventListener('click', () => {
         card.appendChild(img);
         card.appendChild(label);
 
-        // If this champ has flipped state saved (localStorage or runtime), mark it
         if(champ.__flipped) card.classList.add('flipped');
 
-        // Toggle flipped on click
         card.addEventListener('click', () => {
           card.classList.toggle('flipped');
           champ.__flipped = card.classList.contains('flipped');
@@ -222,53 +173,27 @@ ioniaBtn.addEventListener('click', () => {
       });
     }
 
-    function shuffleArray(a){
-      for(let i=a.length-1;i>0;i--){
-        const j=Math.floor(Math.random()*(i+1));
-        [a[i],a[j]]=[a[j],a[i]];
-      }
+    // --- NEW FEATURE: Move eliminated to bottom ---
+    function moveEliminated(){
+      const cards = Array.from(boardEl.children);
+      const flipped = cards.filter(c => c.classList.contains('flipped'));
+      const unflipped = cards.filter(c => !c.classList.contains('flipped'));
+      boardEl.innerHTML = '';
+      unflipped.concat(flipped).forEach(c => boardEl.appendChild(c));
     }
 
-    function saveBoard(){
-      // Save champion order + flipped states
-      const payload = {
-        version,
-        list: allChamps.map(c => ({id:c.id, flipped:!!c.__flipped}))
-      };
-      localStorage.setItem('guesswho-lol-board', JSON.stringify(payload));
-      alert('Board saved locally. Use "Load Board" on this browser to restore.');
-    }
-    function loadBoard(){
-      const raw = localStorage.getItem('guesswho-lol-board');
-      if(!raw){ alert('No saved board found in this browser.'); return; }
-      try{
-        const payload = JSON.parse(raw);
-        if(payload.version !== version){
-          if(!confirm('Saved board used a different LoL version. Continue and try to match champions?')) return;
-        }
-        // Apply flips to current allChamps
-        const map = new Map(payload.list.map(x=>[x.id,x.flipped]));
-        allChamps.forEach(c => { c.__flipped = !!map.get(c.id); });
-        applySearch(qEl.value);
-      }catch(e){
-        alert('Failed to load board: '+e.message);
-      }
-    }
-
-    // init
+    // --- INIT ---
     try {
       setMeta('Fetching latest Riot Data Dragon version…');
       version = await fetchLatestVersion();
       setMeta('Loading champions for version ' + version + ' …');
 
       const champs = await fetchChampions(version);
-      // optional: sort by name for an initial ordered board
       champs.sort((a,b)=>a.name.localeCompare(b.name));
-      // initialize flipped state
       champs.forEach(c=> c.__flipped = false);
 
       allChamps = champs;
-      originalOrder = champs.map(c => c.id); // preserve id order
+      originalOrder = champs.map(c => c.id);
       visibleList = allChamps.slice();
 
       setMeta(`${allChamps.length} champions — Data Dragon ${version}`);
@@ -276,16 +201,14 @@ ioniaBtn.addEventListener('click', () => {
     } catch(err){
       console.error(err);
       setMeta('Failed to load champions. See console for details.');
-      boardEl.innerHTML = '<div style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">Error loading champion data. If you are testing locally from a file (file://), run a local server (see footer) or check your internet connection.</div>';
       return;
     }
 
-    // wire UI
+    // --- UI Handlers ---
     qEl.addEventListener('input', (e) => applySearch(e.target.value));
-    flipAllDownBtn.addEventListener('click', () => { flipAllDown(); });
-    flipAllUpBtn.addEventListener('click', () => { flipAllUp(); });
+    flipAllDownBtn.addEventListener('click', flipAllDown);
+    flipAllUpBtn.addEventListener('click', flipAllUp);
     resetBtn.addEventListener('click', () => {
-      // restore original order and clear flips
       const idMap = new Map(allChamps.map(c=>[c.id,c]));
       allChamps = originalOrder.map(id => {
         const c = idMap.get(id);
@@ -297,16 +220,18 @@ ioniaBtn.addEventListener('click', () => {
       render(visibleList);
       setMeta(`${allChamps.length} champions — Data Dragon ${version}`);
     });
-    shuffleBtn.addEventListener('click', () => {
-      shuffleArray(allChamps);
-      visibleList = allChamps.slice();
+
+    moveEliminatedBtn.addEventListener('click', moveEliminated);
+
+    ioniaBtn.addEventListener('click', () => {
+      visibleList.sort((a,b) => {
+        const aIsIonia = ionianChamps.includes(a.name);
+        const bIsIonia = ionianChamps.includes(b.name);
+        return (aIsIonia === bIsIonia) ? 0 : aIsIonia ? -1 : 1;
+      });
       render(visibleList);
     });
 
-    saveBtn.addEventListener('click', saveBoard);
-    loadBtn.addEventListener('click', loadBoard);
-
-    // keyboard: press "f" to flip all down quickly
     window.addEventListener('keydown', (e) => {
       if(e.key === 'f' && !e.metaKey && !e.ctrlKey) flipAllDown();
       if(e.key === 'u' && !e.metaKey && !e.ctrlKey) flipAllUp();
@@ -317,5 +242,6 @@ ioniaBtn.addEventListener('click', () => {
   </script>
 </body>
 </html>
+
 
 
